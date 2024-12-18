@@ -75,7 +75,7 @@ def Psi_at_reading(psi_values, tri):
     return np.array(concentration)
 
 
-def Psi_at_reading_plot(psi_values, tri, dt, T, D, m, a, f, res, frame_rate, windspeed, name):
+def Psi_at_reading_plot(psi_values, tri, dt, T, file_name):
     xi = weighting_at_Reading(tri)
     weights = [1 - xi[0] - xi[1], xi[0], xi[1]]
     concentration = psi_values[:, 0]*weights[0] + \
@@ -85,8 +85,7 @@ def Psi_at_reading_plot(psi_values, tri, dt, T, D, m, a, f, res, frame_rate, win
     plt.xlabel('Time since start of fire (hours)')
     plt.ylabel(
         'Ratio of concentration of pollutant above Reading \n compared to Southampton')
-    plt.savefig(f'Plots2/Psi_over_Reading_{name}_dt{dt}_T{T}_'
-                + f'D{D}_m{m}_a{a}_f{f}_res{res}_fr{frame_rate}_v{windspeed}.svg', bbox_inches="tight")
+    plt.savefig(f'Plots2/Psi_over_Reading{file_name}.svg', bbox_inches="tight")
 
 
 def normalize_psi(Psi_frames):
@@ -210,7 +209,7 @@ def column_around_wind(nodes, boundary_nodes, wind_velocity):
     return np.where((nodes[boundary_nodes][:, 1] - m*nodes[boundary_nodes][:, 0] > c-dc) & (nodes[boundary_nodes][:, 1] - m*nodes[boundary_nodes][:, 0] < c+dc) & (nodes[boundary_nodes][:, 1] > 200000))[0]
 
 
-def create_boundary_conditions(nodes, ID, boundary_nodes, wind_velocity):
+def create_boundary_conditions(nodes, ID, boundary_nodes, wind_velocity, btype=1):
     southern_border = np.where(nodes[boundary_nodes, 1] <= 200000)[0]
     upwind_nodes = upwind(nodes[boundary_nodes])
     column_nodes = column_around_wind(nodes, boundary_nodes, wind_velocity)
@@ -218,20 +217,27 @@ def create_boundary_conditions(nodes, ID, boundary_nodes, wind_velocity):
     boundary_types = in_and_out_flow_boundaries(
         nodes, boundary_nodes, wind_velocity)
 
-    boundary_conditions = {
-        "Dirichlet": np.unique(np.concatenate((np.array([x for x in boundary_types["Inflow"] if x not in column_nodes]), upwind_nodes))),
-        "Neumann": np.array([x for x in np.unique(np.concatenate((boundary_types["Outflow"], column_nodes))) if x not in upwind_nodes])
-    }
-    # boundary_conditions = {
-    #     "Dirichlet": upwind_nodes,
-    #     "Neumann": [x for x in boundary_nodes if x not in upwind_nodes]
-    # }
-    # boundary_conditions = removing_irregularities_in_boundary(
-    #     boundary_nodes, southern_border, boundary_types)
-    # boundary_conditions = {
-    #     "Dirichlet": southern_border,
-    #     "Neumann": [x for x in boundary_nodes if x not in southern_border]
-    # }
+    if btype == 2:
+        boundary_conditions = {
+            "Dirichlet": upwind_nodes,
+            "Neumann": [x for x in boundary_nodes if x not in upwind_nodes]
+        }
+
+    elif btype == 3:
+        boundary_conditions = removing_irregularities_in_boundary(
+            boundary_nodes, southern_border, boundary_types)
+
+    elif btype == 4:
+        boundary_conditions = {
+            "Dirichlet": southern_border,
+            "Neumann": [x for x in boundary_nodes if x not in southern_border]
+        }
+
+    else:
+        boundary_conditions = {
+            "Dirichlet": np.unique(np.concatenate((np.array([x for x in boundary_types["Inflow"] if x not in column_nodes]), upwind_nodes))),
+            "Neumann": np.array([x for x in np.unique(np.concatenate((boundary_types["Outflow"], column_nodes))) if x not in upwind_nodes])
+        }
 
     n_eq = 0
     for i in range(len(nodes[:, 1])):
@@ -283,17 +289,31 @@ def convergence_test():
 
     h = np.array(list(res_dict.keys())[1:])*1000
     fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(10, 5))
-    # ax1.scatter(h, avg_errors)
+
     ax1.scatter((1/h[:-1])[::-1], avg_s[::-1])
     ax1.set_xticks((1/h[:-1])[::-1], 1 /
                    (np.array(list(res_dict.keys()))[1:-1])[::-1])
-    # ax2.scatter(h, max_errors)
+
     ax2.scatter((1/h[:-1])[::-1], max_s[::-1])
     ax2.set_xticks((1/h[:-1])[::-1], 1 /
                    (np.array(list(res_dict.keys()))[1:-1])[::-1])
     fig.supylabel('Order of Convergence')
     fig.supxlabel('Grid Spacing')
     plt.show()
+    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(9, 3))
+    lobf_avg = np.poly1d(np.polyfit(h, avg_errors, 1))
+    lobg_max = np.poly1d(np.polyfit(h, max_errors, 1))
+    ax1.scatter(h, avg_errors, c='#0bb4ff', edgecolors='black')
+    ax1.plot(h, lobf_avg(h), c='#0bb4ff',
+             label=f'Order of Convergence:{np.round(np.polyfit(h, avg_errors, 1)[0], 4)}')
+    ax2.scatter(h, max_errors, c='#50e991', edgecolors='black')
+    ax2.plot(h, lobg_max(h), c='#50e991',
+             label=f'Order of Convergence:{np.round(np.polyfit(h, max_errors, 1)[0], 4)}')
+    axbox = ax1.get_position()
+    fig.legend(loc='upper left', bbox_to_anchor=[
+               axbox.x0, axbox.y0 + axbox.height])
+    plt.show()
+    print((np.polyfit(h, max_errors, 1)[0]))
 
 
 def compute_matrices(nodes, IEN, ID, boundary_conditions, wind_velocity):
@@ -431,10 +451,8 @@ def Crank_Nicholson(M, K, A, F, ID, nodes, boundary_conditions, dt, T):
 
 
 def plot_results(nodes, IEN, boundary_conditions, boundary_nodes, Psi_A):
-    tri = find_Reading(nodes, IEN)
+    plt.figure(figsize=(5, 5))
     plt.tripcolor(nodes[:, 0], nodes[:, 1], Psi_A, triangles=IEN)
-    # plt.scatter(tri[:, 0], tri[:, 1], c='b') # around reading
-    # identify the boundary nodes are placed correctly
     plt.scatter(nodes[boundary_nodes, 0], nodes[boundary_nodes, 1],
                 color='red', label='Boundary Nodes', marker='.')
     plt.scatter(nodes[boundary_conditions["Dirichlet"], 0],
@@ -450,9 +468,29 @@ def plot_results(nodes, IEN, boundary_conditions, boundary_nodes, Psi_A):
 
     n = 52
     # plt.scatter(nodes[n, 0], nodes[n, 1], c='b', label='Selector', marker='*')
-    plt.colorbar()
-    # plt.legend()
+    # plt.colorbar()
+    plt.legend('upper left')
     plt.show()
+
+
+def plot_frames(nodes, IEN, boundary_conditions, boundary_nodes, Psi_frames, frames, file_name):
+    for i, Psi in enumerate(Psi_frames):
+        plt.figure(figsize=(5, 5))
+        plt.tripcolor(nodes[:, 0], nodes[:, 1], Psi, triangles=IEN)
+        plt.scatter(nodes[boundary_conditions["Dirichlet"], 0],
+                    nodes[boundary_conditions["Dirichlet"], 1],
+                    color='orange', label='Dirichlet Boundary Nodes')
+        plt.scatter(nodes[boundary_conditions["Neumann"], 0],
+                    nodes[boundary_conditions["Neumann"], 1],
+                    color='lightblue', label='Neumann Boundary Nodes')
+        plt.scatter([442365], [115483], marker='o',
+                    facecolor='None', edgecolor='black', label='Southampton')
+        plt.scatter([473993], [171625], marker='o',
+                    facecolor='None', edgecolor='black', label='Reading')
+
+        # plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=2)
+        plt.savefig(
+            f'Plots2/Frame{frames[i]}{file_name}.svg', bbox_inches="tight")
 
 
 def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_conditions):
@@ -481,8 +519,6 @@ def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_condit
     for i, Psi in enumerate(Psi_frames):
         if i % frame_rate == 0:
             ax.clear()
-
-            # Clear and redraw the plot and colorbar for each frame
             contour = ax.tripcolor(triang, Psi, shading='flat',
                                    cmap='viridis', vmin=0, vmax=1)
             ax.set_title(f"Time Evolution: t = {i * dt:.1f} seconds")
@@ -537,7 +573,7 @@ def scaling_matrices(M, K, A, F, L, windspeed):
     return M * scale_m, K * scale_k, A * scale_a, F * scale_f
 
 
-def run():
+def make_gif_from_scratch():
     windspeed = 10
     D = 10000
     m = 1
@@ -562,7 +598,7 @@ def run():
               'Crank-Nicholson': Crank_Nicholson}
     nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
     boundary_conditions, ID2 = create_boundary_conditions(
-        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]))
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
     M, K, A, F = compute_matrices(
         nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
 
@@ -702,9 +738,59 @@ def make_gif_from_file():
     print('Finished')
 
 
+def plot_specific_frames_from_scratch(frames, concentration_at_reading=False):
+    windspeed = 10
+    D = 10000
+    m = 1
+    f = 1
+    a = 1
+    frame_rate = 100
+    res = 5
+    res_dict = {1.25: '1_25',
+                2.5: '2_5',
+                5: '5',
+                10: '10',
+                20: '20',
+                40: '40'}
+    model = 1
+    model_name = {1: 'Backwards Euler',
+                  2: 'Forwards Euler',
+                  3: 'Runge-Kutta 2',
+                  4: 'Crank-Nicholson'}
+    models = {'Backwards Euler': Backwards_Euler,
+              'Forwards Euler': Forward_Euler,
+              'Runge-Kutta 2': rk2,
+              'Crank-Nicholson': Crank_Nicholson}
+    nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
+    boundary_conditions, ID2 = create_boundary_conditions(
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]))
+    M, K, A, F = compute_matrices(
+        nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
+
+    dt = 10
+    T = 43200  # 12hours
+
+    Psi_frames = models[model_name[model]](
+        m * M, D*K, a * A, f * F, ID2, nodes, boundary_conditions, dt, T)
+
+    Psi_frames, psi_min, psi_max = normalize_psi(Psi_frames)
+    file_name = f"_{model_name[model]}_dt{dt}_T{T}_" \
+        + f"D{D}_m{m}_a{a}_f{f}_res{res}_fr{frame_rate}_v{windspeed}"
+
+    if concentration_at_reading == True:
+        tri = find_Reading(nodes, IEN)
+        psi_values = Psi_frames[:, tri]
+        Psi_at_reading_plot(psi_values, nodes[tri], dt, T, file_name)
+
+    adjusted_frames = [frame//dt-1 for frame in frames]
+    plot_frames(nodes, IEN, boundary_conditions,
+                boundary_nodes, Psi_frames[adjusted_frames], frames, file_name)
+
+
 start = time.time()
 
-convergence_test()
+frames = [10, 5400, 21600, 36000, 43000]
+plot_specific_frames_from_scratch(frames, concentration_at_reading=True)
 
 end = time.time()
 print(f'Completion time {end-start}')
