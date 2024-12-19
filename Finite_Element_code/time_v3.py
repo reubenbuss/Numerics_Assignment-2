@@ -81,11 +81,11 @@ def Psi_at_reading_plot(psi_values, tri, dt, T, file_name):
     concentration = psi_values[:, 0]*weights[0] + \
         psi_values[:, 1]*weights[1] + psi_values[:, 2]*weights[2]
     plt.plot(range(0, T, dt), concentration)
-    plt.xticks(range(0, T, 3600), range(0, T//3600))
+    # plt.xticks(range(0, T, 3600), range(0, T//3600))
     plt.xlabel('Time since start of fire (hours)')
     plt.ylabel(
         'Ratio of concentration of pollutant above Reading \n compared to Southampton')
-    plt.savefig(f'Plots2/Psi_over_Reading{file_name}.svg', bbox_inches="tight")
+    plt.savefig(f'Plots2/Psi_over_Reading{file_name}.pdf', bbox_inches="tight")
 
 
 def normalize_psi(Psi_frames):
@@ -124,7 +124,7 @@ def NORM(analytic, numerical):
 
 
 def upwind(boundary_nodes):
-    wind_direction = wind_velocity(1, 'Crank-Nicholson')
+    wind_direction = wind_velocity(1, 'Backwards Euler')
     perp_to_wind = np.array([-wind_direction[1], wind_direction[0]])
     Southampton = np.array([442365, 115483])
     m = perp_to_wind[1]/perp_to_wind[0]
@@ -137,7 +137,8 @@ def upwind(boundary_nodes):
     return np.where(boundary_nodes[:, 1] - m*boundary_nodes[:, 0] < c)[0]
 
 
-def in_and_out_flow_boundaries(nodes, boundary_nodes, wind_velocity):
+def in_and_out_flow_boundaries(nodes, boundary_nodes):
+    wind_direction = wind_velocity(1, 'Backwards Euler')
     boundary_types = {"Inflow": [], "Outflow": []}
     x0, y0 = nodes[boundary_nodes[-1]]
     x1, y1 = nodes[boundary_nodes[0]]
@@ -145,7 +146,7 @@ def in_and_out_flow_boundaries(nodes, boundary_nodes, wind_velocity):
     dy = y1-y0
     inward_normal = np.array([dy, -dx])
     outward_normal = np.array([-dy, dx])
-    dot_product = np.dot(wind_velocity, outward_normal)
+    dot_product = np.dot(wind_direction, outward_normal)
     if dot_product < 0:
         boundary_types["Inflow"].append(boundary_nodes[0])
     else:
@@ -158,7 +159,7 @@ def in_and_out_flow_boundaries(nodes, boundary_nodes, wind_velocity):
         right_normal = np.array([dy, -dx])
         left_normal = np.array([-dy, dx])
         # since the boundary conditions have been labelled in a clockwise direction the right normal should be inside pointing and left normal outwards pointing
-        dot_product = np.dot(wind_velocity, left_normal)
+        dot_product = np.dot(wind_direction, left_normal)
         if dot_product < 0:
             boundary_types["Inflow"].append(boundary_nodes[i])
         else:
@@ -209,30 +210,56 @@ def column_around_wind(nodes, boundary_nodes, wind_velocity):
     return np.where((nodes[boundary_nodes][:, 1] - m*nodes[boundary_nodes][:, 0] > c-dc) & (nodes[boundary_nodes][:, 1] - m*nodes[boundary_nodes][:, 0] < c+dc) & (nodes[boundary_nodes][:, 1] > 200000))[0]
 
 
-def create_boundary_conditions(nodes, ID, boundary_nodes, wind_velocity, btype=1):
+def create_boundary_conditions(nodes, ID, boundary_nodes, wind_velocity, btype):
     southern_border = np.where(nodes[boundary_nodes, 1] <= 200000)[0]
     upwind_nodes = upwind(nodes[boundary_nodes])
     column_nodes = column_around_wind(nodes, boundary_nodes, wind_velocity)
 
     boundary_types = in_and_out_flow_boundaries(
-        nodes, boundary_nodes, wind_velocity)
-
+        nodes, boundary_nodes)
+    # just upwind Direchlet
     if btype == 2:
         boundary_conditions = {
             "Dirichlet": upwind_nodes,
             "Neumann": [x for x in boundary_nodes if x not in upwind_nodes]
         }
-
+    # Attempt to remove frequent changing in the boundary type which doesn't really make sense
     elif btype == 3:
         boundary_conditions = removing_irregularities_in_boundary(
             boundary_nodes, southern_border, boundary_types)
-
+    # Just southern Direchlet
     elif btype == 4:
         boundary_conditions = {
             "Dirichlet": southern_border,
             "Neumann": [x for x in boundary_nodes if x not in southern_border]
         }
-
+    # Inflow Dirichelt and upwind
+    elif btype == 5:
+        print('here')
+        boundary_conditions = {
+            "Dirichlet": np.unique(np.concatenate((boundary_types["Inflow"], upwind_nodes))),
+            "Neumann": np.array([x for x in boundary_types["Outflow"] if x not in upwind_nodes])
+        }
+    # inflow Dirichlet and above 200000
+    elif btype == 6:
+        boundary_conditions = {
+            "Dirichlet": np.unique(np.concatenate((boundary_types["Inflow"], southern_border))),
+            "Neumann": np.array([x for x in boundary_types["Outflow"] if x not in southern_border])
+        }
+    # all Direchlet
+    elif btype == 7:
+        boundary_conditions = {
+            "Dirichlet": boundary_nodes,
+            "Neumann": []
+        }
+    # inflow outflow
+    elif btype == 8:
+        boundary_conditions = {
+            "Dirichlet": boundary_types["Inflow"],
+            "Neumann": boundary_types["Outflow"]
+        }
+    # Sets upwind of southampton nodes and inflow nodes excluding column nodes as Direchlet
+    # Sets Outflow and column nodes excluding upwind as Neumann
     else:
         boundary_conditions = {
             "Dirichlet": np.unique(np.concatenate((np.array([x for x in boundary_types["Inflow"] if x not in column_nodes]), upwind_nodes))),
@@ -476,13 +503,14 @@ def plot_results(nodes, IEN, boundary_conditions, boundary_nodes, Psi_A):
 def plot_frames(nodes, IEN, boundary_conditions, boundary_nodes, Psi_frames, frames, file_name):
     for i, Psi in enumerate(Psi_frames):
         plt.figure(figsize=(5, 5))
-        plt.tripcolor(nodes[:, 0], nodes[:, 1], Psi, triangles=IEN)
+        plt.tripcolor(nodes[:, 0], nodes[:, 1], Psi,
+                      triangles=IEN, shading='gouraud')
         plt.scatter(nodes[boundary_conditions["Dirichlet"], 0],
                     nodes[boundary_conditions["Dirichlet"], 1],
-                    color='orange', label='Dirichlet Boundary Nodes')
+                    color='orange', label='Dirichlet Boundary Nodes', s=1)
         plt.scatter(nodes[boundary_conditions["Neumann"], 0],
                     nodes[boundary_conditions["Neumann"], 1],
-                    color='lightblue', label='Neumann Boundary Nodes')
+                    color='lightblue', label='Neumann Boundary Nodes', s=1)
         plt.scatter([442365], [115483], marker='o',
                     facecolor='None', edgecolor='black', label='Southampton')
         plt.scatter([473993], [171625], marker='o',
@@ -490,7 +518,8 @@ def plot_frames(nodes, IEN, boundary_conditions, boundary_nodes, Psi_frames, fra
 
         # plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=2)
         plt.savefig(
-            f'Plots2/Frame{frames[i]}{file_name}.svg', bbox_inches="tight")
+            f'Plots2/Frame{frames[i]}{file_name}.pdf', bbox_inches="tight")
+        print(f'file saved as Frame{frames[i]}')
 
 
 def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_conditions):
@@ -531,9 +560,9 @@ def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_condit
             ax.scatter(nodes[boundary_conditions["Dirichlet"], 0],
                        nodes[boundary_conditions["Dirichlet"], 1],
                        color='orange', label='Dirichlet Boundary Nodes', marker='.')
-            plt.scatter(nodes[boundary_conditions["Neumann"], 0],
-                        nodes[boundary_conditions["Neumann"], 1],
-                        color='lightblue', label='Neumann Boundary Nodes', marker='.')
+            ax.scatter(nodes[boundary_conditions["Neumann"], 0],
+                       nodes[boundary_conditions["Neumann"], 1],
+                       color='lightblue', label='Neumann Boundary Nodes', marker='.')
             # ax.plot(x, y, c='k') #plot the perp to wind line
             # Render the figure and convert it to an image
             fig.canvas.draw()
@@ -546,7 +575,7 @@ def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_condit
 
     # Save as GIF
     images[0].save(
-        filename, save_all=True, append_images=images[1:], duration=100, loop=0
+        f'Plots2/{filename}.gif', save_all=True, append_images=images[1:], duration=100, loop=0
     )
     print(f"GIF saved as {filename}")
 
@@ -573,21 +602,21 @@ def scaling_matrices(M, K, A, F, L, windspeed):
     return M * scale_m, K * scale_k, A * scale_a, F * scale_f
 
 
-def make_gif_from_scratch():
+def make_gif_from_scratch(btype):
     windspeed = 10
-    D = 10000
+    D = 0
     m = 1
     f = 1
     a = 1
     frame_rate = 100
-    res = 1.25
+    res = 5
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
                 5: '5',
                 10: '10',
                 20: '20',
                 40: '40'}
-    model = 1
+    model = 4
     model_name = {1: 'Backwards Euler',
                   2: 'Forwards Euler',
                   3: 'Runge-Kutta 2',
@@ -598,13 +627,14 @@ def make_gif_from_scratch():
               'Crank-Nicholson': Crank_Nicholson}
     nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
     boundary_conditions, ID2 = create_boundary_conditions(
-        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), model_name[model], btype)
+
     M, K, A, F = compute_matrices(
         nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
 
     dt = 10
     T = 43200  # 12hours
-
+    T = 10000
     # # Attempt to non-dimensionalise
     # # S_0 = 1
     # # L = res*1000
@@ -640,12 +670,12 @@ def make_gif_from_scratch():
     Psi_frames, psi_min, psi_max = normalize_psi(Psi_frames)
     tri = find_Reading(nodes, IEN)
     psi_values = Psi_frames[:, tri]
-    Psi_at_reading_plot(psi_values, nodes[tri], dt, T, D, m, a, f,
-                        res, frame_rate, windspeed, model_name[model])
-    # Generate and save GIF
-    file_name = f"Plots2/Time_dependent_{model_name[model]}_dt{dt}_T{T}_" \
-        + f"D{D}_m{m}_a{a}_f{f}_res{res}_fr{frame_rate}_v{windspeed}.gif"
-    # file_name = "Plots2/Test.gif"
+    file_name = f"{model_name[model]}_dt{dt}_T{T}_" \
+        + f"D{D}_m{m}_a{a}_f{f}_res{res}_fr{frame_rate}_v{windspeed}"
+
+    # Psi_at_reading_plot(psi_values, nodes[tri], dt, T, file_name)
+
+    file_name = "Test5"
     create_gif(Psi_frames, nodes, IEN,
                file_name, dt, frame_rate, boundary_conditions)
     print('Done')
@@ -658,6 +688,7 @@ def save_psi(res):
     f = 1
     a = 1
     frame_rate = 100
+    btype = 1
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
                 5: '5',
@@ -675,7 +706,7 @@ def save_psi(res):
               'Crank-Nicholson': Crank_Nicholson}
     nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
     boundary_conditions, ID2 = create_boundary_conditions(
-        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]))
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
     M, K, A, F = compute_matrices(
         nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
 
@@ -700,6 +731,7 @@ def make_gif_from_file():
     a = 1
     frame_rate = 100
     res = 1.25
+    btype = 1
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
                 5: '5',
@@ -717,7 +749,7 @@ def make_gif_from_file():
               'Crank-Nicholson': Crank_Nicholson}
     nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
     boundary_conditions, ID2 = create_boundary_conditions(
-        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]))
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
 
     dt = 10
     T = 43200  # 12hours
@@ -738,13 +770,13 @@ def make_gif_from_file():
     print('Finished')
 
 
-def plot_specific_frames_from_scratch(frames, concentration_at_reading=False):
+def plot_specific_frames_from_scratch(frames, btype, concentration_at_reading=False):
     windspeed = 10
-    D = 10000
+    # D = backwards 10000, rest 0
+    D = 1000
     m = 1
     f = 1
     a = 1
-    frame_rate = 100
     res = 5
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
@@ -752,7 +784,7 @@ def plot_specific_frames_from_scratch(frames, concentration_at_reading=False):
                 10: '10',
                 20: '20',
                 40: '40'}
-    model = 1
+    model = 3
     model_name = {1: 'Backwards Euler',
                   2: 'Forwards Euler',
                   3: 'Runge-Kutta 2',
@@ -763,34 +795,36 @@ def plot_specific_frames_from_scratch(frames, concentration_at_reading=False):
               'Crank-Nicholson': Crank_Nicholson}
     nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
     boundary_conditions, ID2 = create_boundary_conditions(
-        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]))
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
     M, K, A, F = compute_matrices(
         nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
 
-    dt = 10
-    T = 43200  # 12hours
+    dt = 0.1
+    T = max(frames)+1
 
     Psi_frames = models[model_name[model]](
         m * M, D*K, a * A, f * F, ID2, nodes, boundary_conditions, dt, T)
 
     Psi_frames, psi_min, psi_max = normalize_psi(Psi_frames)
     file_name = f"_{model_name[model]}_dt{dt}_T{T}_" \
-        + f"D{D}_m{m}_a{a}_f{f}_res{res}_fr{frame_rate}_v{windspeed}"
+        + f"D{D}_m{m}_a{a}_f{f}_res{res}_v{windspeed}_b{btype}"
 
     if concentration_at_reading == True:
         tri = find_Reading(nodes, IEN)
         psi_values = Psi_frames[:, tri]
         Psi_at_reading_plot(psi_values, nodes[tri], dt, T, file_name)
 
-    adjusted_frames = [frame//dt-1 for frame in frames]
+    adjusted_frames = [int(frame//dt-1) for frame in frames]
     plot_frames(nodes, IEN, boundary_conditions,
                 boundary_nodes, Psi_frames[adjusted_frames], frames, file_name)
 
 
 start = time.time()
 
-frames = [10, 5400, 21600, 36000, 43000]
-plot_specific_frames_from_scratch(frames, concentration_at_reading=True)
+frames = [100]
+plot_specific_frames_from_scratch(
+    frames, btype=1)
+# make_gif_from_scratch(btype=5)
 
 end = time.time()
 print(f'Completion time {end-start}')
