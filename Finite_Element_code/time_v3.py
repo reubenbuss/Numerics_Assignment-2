@@ -503,8 +503,15 @@ def convergence_test():
                 2.5: '2_5',
                 5: '5',
                 10: '10',
-                20: '20',
-                40: '40'}
+                20: '20'}
+
+    n_equations = []
+    for i, j in res_dict.items():
+        nodes, IEN, boundary_nodes, ID = south_grid(j)
+        boundary_conditions, ID = create_boundary_conditions(
+            nodes, ID, boundary_nodes, wind_velocity(10, 'Backwards Euler'), btype=1)
+        n_equations.append(len(nodes) - len(boundary_conditions["Dirichlet"]))
+
     Psis = []
     psi_at_readings = []
     avg_psi_at_reading = []
@@ -533,33 +540,50 @@ def convergence_test():
         avg_s.append(np.log2(abs(avg_psi_at_reading[i+1] - avg_psi_at_reading[i+2]) / abs(
             avg_psi_at_reading[i] - avg_psi_at_reading[i+1])))
 
-    h = np.array(list(res_dict.keys())[1:])*1000
-    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(10, 5))
+    h = (1/np.array(list(res_dict.keys())[1:])*1000)[::-1]
+    h = 1/np.array(n_equations[1:])
+    print(h)
+    lh = np.log(h)
+    lavg_errors = np.log(avg_errors)
+    lmax_errors = np.log(max_errors)
+    print(lh)
+    print(lmax_errors)
+    print(lavg_errors)
 
-    ax1.scatter((1/h[:-1])[::-1], avg_s[::-1])
-    ax1.set_xticks((1/h[:-1])[::-1], 1 /
-                   (np.array(list(res_dict.keys()))[1:-1])[::-1])
+    # fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(10, 5))
 
-    ax2.scatter((1/h[:-1])[::-1], max_s[::-1])
-    ax2.set_xticks((1/h[:-1])[::-1], 1 /
-                   (np.array(list(res_dict.keys()))[1:-1])[::-1])
-    fig.supylabel('Order of Convergence')
-    fig.supxlabel('Grid Spacing')
-    plt.show()
-    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(9, 3))
-    lobf_avg = np.poly1d(np.polyfit(h, avg_errors, 1))
-    lobg_max = np.poly1d(np.polyfit(h, max_errors, 1))
+    # ax1.scatter((1/h[:-1])[::-1], avg_s[::-1])
+    # ax1.set_xticks((1/h[:-1])[::-1], 1 /
+    #                (np.array(list(res_dict.keys()))[1:-1])[::-1])
+
+    # ax2.scatter((1/h[:-1])[::-1], max_s[::-1])
+    # ax2.set_xticks((1/h[:-1])[::-1], 1 /
+    #                (np.array(list(res_dict.keys()))[1:-1])[::-1])
+    # fig.supylabel('Order of Convergence')
+    # fig.supxlabel('Grid Spacing')
+    # plt.show()
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True,
+                                   figsize=(9, 3), layout='constrained')
+    a, b = np.polyfit(lh, lavg_errors, 1)
+    c, d = np.polyfit(lh, lmax_errors, 1)
     ax1.scatter(h, avg_errors, c='#0bb4ff', edgecolors='black')
-    ax1.plot(h, lobf_avg(h), c='#0bb4ff',
-             label=f'Order of Convergence:{np.round(np.polyfit(h, avg_errors, 1)[0], 4)}')
+    ax1.plot([h[0], h[-1]], [avg_errors[0], avg_errors[-1]], c='#0bb4ff',
+             label=f'Order of Convergence:{np.round(a, 4)}')
+    ax1.set_yscale('log')
+    ax1.set_xscale('log')
+    ax1.set_ylabel('Error in average pollution \n concentration over Reading')
     ax2.scatter(h, max_errors, c='#50e991', edgecolors='black')
-    ax2.plot(h, lobg_max(h), c='#50e991',
-             label=f'Order of Convergence:{np.round(np.polyfit(h, max_errors, 1)[0], 4)}')
+    ax2.plot([h[0], h[-1]], [max_errors[0], max_errors[-1]], c='#50e991',
+             label=f'Order of Convergence:{np.round(c, 4)}')
+    ax2.set_yscale('log')
+    ax2.set_xscale('log')
+    ax2.set_ylabel('Error in max pollution \n concentration over Reading')
     axbox = ax1.get_position()
-    fig.legend(loc='upper left', bbox_to_anchor=[
-               axbox.x0, axbox.y0 + axbox.height])
-    plt.show()
-    print((np.polyfit(h, max_errors, 1)[0]))
+    ax1.legend(loc='upper left')
+    ax2.legend(loc='upper left')
+    fig.supxlabel('1 / Grid Size')
+    plt.savefig('Plots2/Convergence2.pdf', bbox_inches="tight")
 
 
 def compute_matrices(nodes, IEN, ID, boundary_conditions, wind_velocity):
@@ -612,7 +636,7 @@ def compute_matrices(nodes, IEN, ID, boundary_conditions, wind_velocity):
 
 def Backwards_Euler(M, K, A, F, ID, nodes, boundary_conditions, dt, T):
     """
-    Solve the time-dependent PDE using the Backward Euler method.
+    Solve the time-dependent PDE using the Backward Euler method switching off the source at t = 28800 = 8 hours 
 
     Args:
         M (scipy.sparse matrix): Mass matrix.
@@ -1227,10 +1251,11 @@ def plot_specific_frames_from_scratch(frames, btype, concentration_at_reading=Fa
 
 start = time.time()
 
-frames = [100]
-plot_specific_frames_from_scratch(
-    frames, btype=1)
+# frames = [100]
+# plot_specific_frames_from_scratch(
+#     frames, btype=1)
 # make_gif_from_scratch(btype=5)
+convergence_test()
 
 end = time.time()
 print(f'Completion time {end-start}')
