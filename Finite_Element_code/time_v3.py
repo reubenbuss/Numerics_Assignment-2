@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.spatial import distance
 from scipy import sparse as sp
 from matplotlib.tri import Triangulation
 from PIL import Image
@@ -503,7 +504,8 @@ def convergence_test():
                 2.5: '2_5',
                 5: '5',
                 10: '10',
-                20: '20'}
+                20: '20',
+                40: '40'}
 
     n_equations = []
     for i, j in res_dict.items():
@@ -529,9 +531,9 @@ def convergence_test():
         avg_psi_at_reading.append(np.mean(concentration))
         max_psi_at_reading.append(np.max(concentration))
     avg_errors = [abs(val - avg_psi_at_reading[0])
-                  for val in avg_psi_at_reading[1:]]
+                  for val in avg_psi_at_reading[1:]][:-1]
     max_errors = [abs(val - max_psi_at_reading[0])
-                  for val in max_psi_at_reading[1:]]
+                  for val in max_psi_at_reading[1:]][:-1]
     max_s = []
     avg_s = []
     for i in range(len(avg_psi_at_reading)-2):
@@ -540,15 +542,13 @@ def convergence_test():
         avg_s.append(np.log2(abs(avg_psi_at_reading[i+1] - avg_psi_at_reading[i+2]) / abs(
             avg_psi_at_reading[i] - avg_psi_at_reading[i+1])))
 
-    h = (1/np.array(list(res_dict.keys())[1:])*1000)[::-1]
-    h = 1/np.array(n_equations[1:])
-    print(h)
+    print('Max S', np.array(max_s))
+    print('Average S', np.array(avg_s))
+    h = (1/np.array(list(res_dict.keys())[1:-1])*1000)[::-1]
+    h = 1/np.array(n_equations[1:-1])
     lh = np.log(h)
     lavg_errors = np.log(avg_errors)
     lmax_errors = np.log(max_errors)
-    print(lh)
-    print(lmax_errors)
-    print(lavg_errors)
 
     # fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(10, 5))
 
@@ -583,7 +583,7 @@ def convergence_test():
     ax1.legend(loc='upper left')
     ax2.legend(loc='upper left')
     fig.supxlabel('1 / Grid Size')
-    plt.savefig('Plots2/Convergence2.pdf', bbox_inches="tight")
+    plt.savefig('Plots2/Convergence3.pdf', bbox_inches="tight")
 
 
 def compute_matrices(nodes, IEN, ID, boundary_conditions, wind_velocity):
@@ -1005,7 +1005,7 @@ def make_gif_from_scratch(btype):
         None: Generates and saves a GIF of the simulation results.
     """
     windspeed = 10
-    D = 0
+    D = 10000
     m = 1
     f = 1
     a = 1
@@ -1017,7 +1017,7 @@ def make_gif_from_scratch(btype):
                 10: '10',
                 20: '20',
                 40: '40'}
-    model = 4
+    model = 1
     model_name = {1: 'Backwards Euler',
                   2: 'Forwards Euler',
                   3: 'Runge-Kutta 2',
@@ -1028,7 +1028,7 @@ def make_gif_from_scratch(btype):
               'Crank-Nicholson': Crank_Nicholson}
     nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
     boundary_conditions, ID2 = create_boundary_conditions(
-        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), model_name[model], btype)
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
 
     M, K, A, F = compute_matrices(
         nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
@@ -1056,14 +1056,29 @@ def make_gif_from_scratch(btype):
     # # M, K, A, F = scaling_matrices(M, K, A, F, L, windspeed)
 
     print('L =', L, 'u =', windspeed)
-    print('D * K =', np.round(np.absolute(D *
+    print('|D * K| =', np.round(np.absolute(D *
           K[K != 0]).mean(), decimals=5), 'D * K ~ L^2', L**2)
-    print('A =', np.round(np.absolute(
+    print('|A| =', np.round(np.absolute(
         A[A != 0]).mean(), 5), 'A ~ u * L', windspeed*L)
     print('m * M =', np.round(np.absolute(m *
           M[M != 0]).mean(), 5), 'M ~ L^2', L**2)
     print('f * F =', np.round(np.absolute(f *
           F[F != 0]).mean(), 5), 'F ~ L^2', L**2)
+    print('D * K =', np.round(D * K[K != 0].mean(),
+          decimals=5), 'D * K ~ L^2', L**2)
+    print('A =', np.round(A[A != 0].mean(), 5), 'A ~ u * L', windspeed*L)
+    print('Mean Eigenvalues D', np.mean(sp.linalg.eigs(
+        sp.csr_matrix(D*K), return_eigenvectors=False)))
+    print('Mean Eigenvalues A', np.mean(sp.linalg.eigs(
+        sp.csr_matrix(A), return_eigenvectors=False)))
+    print('Max Eigenvalues D', np.max(sp.linalg.eigs(
+        sp.csr_matrix(D*K), return_eigenvectors=False)))
+    print('Max Eigenvalues A', np.max(sp.linalg.eigs(
+        sp.csr_matrix(A), return_eigenvectors=False)))
+
+    node_distances = distance.cdist(nodes, nodes, 'euclidean')
+    min_node_distance = np.min(node_distances[node_distances != 0])
+    print('Min node distance', min_node_distance)
 
     Psi_frames = models[model_name[model]](
         m * M, D*K, a * A, f * F, ID2, nodes, boundary_conditions, dt, T)
@@ -1249,13 +1264,81 @@ def plot_specific_frames_from_scratch(frames, btype, concentration_at_reading=Fa
                 boundary_nodes, Psi_frames[adjusted_frames], frames, file_name)
 
 
+def numbers_from_system(btype):
+    """
+    Create and save a simulation GIF by running the solver from scratch.
+
+    Args:
+        btype (int): Boundary condition type to use.
+
+    Returns:
+        None: Generates and saves a GIF of the simulation results.
+    """
+    windspeed = 10
+    D = 10000
+    m = 1
+    f = 1
+    a = 1
+    frame_rate = 100
+    res = 2.5
+    res_dict = {1.25: '1_25',
+                2.5: '2_5',
+                5: '5',
+                10: '10',
+                20: '20',
+                40: '40'}
+    model = 1
+    model_name = {1: 'Backwards Euler',
+                  2: 'Forwards Euler',
+                  3: 'Runge-Kutta 2',
+                  4: 'Crank-Nicholson'}
+    models = {'Backwards Euler': Backwards_Euler,
+              'Forwards Euler': Forward_Euler,
+              'Runge-Kutta 2': rk2,
+              'Crank-Nicholson': Crank_Nicholson}
+    nodes, IEN, boundary_nodes, ID = south_grid(res_dict[res])
+    boundary_conditions, ID2 = create_boundary_conditions(
+        nodes, ID, boundary_nodes, wind_velocity(windspeed, model_name[model]), btype)
+
+    M, K, A, F = compute_matrices(
+        nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
+
+    L = res*1000
+
+    print('L =', L, 'u =', windspeed)
+    print('|D * K| =', np.round(np.absolute(D *
+          K[K != 0]).mean(), decimals=5), 'D * K ~ L^2', L**2)
+    print('|A| =', np.round(np.absolute(
+        A[A != 0]).mean(), 5), 'A ~ u * L', windspeed*L)
+    print('m * M =', np.round(np.absolute(m *
+          M[M != 0]).mean(), 5), 'M ~ L^2', L**2)
+    print('f * F =', np.round(np.absolute(f *
+          F[F != 0]).mean(), 5), 'F ~ L^2', L**2)
+    print('D * K =', np.round(D * K[K != 0].mean(),
+          decimals=5), 'D * K ~ L^2', L**2)
+    print('A =', np.round(A[A != 0].mean(), 5), 'A ~ u * L', windspeed*L)
+    print('Mean Eigenvalues D', np.mean(sp.linalg.eigs(
+        sp.csr_matrix(D*K), return_eigenvectors=False)))
+    print('Mean Eigenvalues A', np.mean(sp.linalg.eigs(
+        sp.csr_matrix(A), return_eigenvectors=False)))
+    print('Max Eigenvalues D', np.max(sp.linalg.eigs(
+        sp.csr_matrix(D*K), return_eigenvectors=False)))
+    print('Max Eigenvalues A', np.max(sp.linalg.eigs(
+        sp.csr_matrix(A), return_eigenvectors=False)))
+
+    node_distances = distance.cdist(nodes, nodes, 'euclidean')
+    min_node_distance = np.min(node_distances[node_distances != 0])
+    print('Min node distance', min_node_distance)
+
+
 start = time.time()
 
 # frames = [100]
 # plot_specific_frames_from_scratch(
 #     frames, btype=1)
-# make_gif_from_scratch(btype=5)
-convergence_test()
+# make_gif_from_scratch(btype=1)
+# convergence_test()
+numbers_from_system(btype=1)
 
 end = time.time()
 print(f'Completion time {end-start}')
