@@ -544,6 +544,7 @@ def convergence_test():
 
     print('Max S', np.array(max_s))
     print('Average S', np.array(avg_s))
+    print('n_equations', n_equations)
     h = (1/np.array(list(res_dict.keys())[1:-1])*1000)[::-1]
     h = 1/np.array(n_equations[1:-1])
     lh = np.log(h)
@@ -1336,9 +1337,9 @@ start = time.time()
 # frames = [100]
 # plot_specific_frames_from_scratch(
 #     frames, btype=1)
-# make_gif_from_scratch(btype=1)
+make_gif_from_scratch(btype=1)
 # convergence_test()
-numbers_from_system(btype=1)
+# numbers_from_system(btype=1)
 
 end = time.time()
 print(f'Completion time {end-start}')
