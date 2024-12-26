@@ -188,12 +188,13 @@ def Psi_at_reading_plot(psi_values, tri, dt, T, file_name):
     weights = [1 - xi[0] - xi[1], xi[0], xi[1]]
     concentration = psi_values[:, 0]*weights[0] + \
         psi_values[:, 1]*weights[1] + psi_values[:, 2]*weights[2]
+    plt.cla()
     plt.plot(range(0, T, dt), concentration)
-    # plt.xticks(range(0, T, 3600), range(0, T//3600))
+    plt.xticks(range(0, T, 3600), range(0, T//3600))
     plt.xlabel('Time since start of fire (hours)')
     plt.ylabel(
         'Ratio of concentration of pollutant above Reading \n compared to Southampton')
-    plt.savefig(f'Plots2/Psi_over_Reading{file_name}.pdf', bbox_inches="tight")
+    plt.savefig(f'Psi_over_Reading{file_name}.pdf', bbox_inches="tight")
 
 
 def normalize_psi(Psi_frames):
@@ -446,7 +447,6 @@ def create_boundary_conditions(nodes, ID, boundary_nodes, wind_velocity, btype):
         }
     # Inflow Dirichelt and upwind
     elif btype == 5:
-        print('here')
         boundary_conditions = {
             "Dirichlet": np.unique(np.concatenate((boundary_types["Inflow"], upwind_nodes))),
             "Neumann": np.array([x for x in boundary_types["Outflow"] if x not in upwind_nodes])
@@ -871,8 +871,8 @@ def plot_frames(nodes, IEN, boundary_conditions, boundary_nodes, Psi_frames, fra
 
         # plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=2)
         plt.savefig(
-            f'Plots2/Frame{frames[i]}{file_name}.pdf', bbox_inches="tight")
-        print(f'file saved as Frame{frames[i]}')
+            f'Frame{frames[i]}{file_name}.pdf', bbox_inches="tight")
+        print(f'file saved as Frame{frames[i]}{file_name}')
 
 
 def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_conditions):
@@ -940,7 +940,7 @@ def create_gif(Psi_frames, nodes, IEN, filename, dt, frame_rate, boundary_condit
 
     # Save as GIF
     images[0].save(
-        f'Plots2/{filename}.gif', save_all=True, append_images=images[1:], duration=100, loop=0
+        f'{filename}.gif', save_all=True, append_images=images[1:], duration=100, loop=0
     )
     print(f"GIF saved as {filename}")
 
@@ -995,30 +995,34 @@ def scaling_matrices(M, K, A, F, L, windspeed):
     return M * scale_m, K * scale_k, A * scale_a, F * scale_f
 
 
-def make_gif_from_scratch(btype):
+def make_gif_from_scratch(btype, res, D, model, concentration_at_reading=False):
     """
     Create and save a simulation GIF by running the solver from scratch.
 
     Args:
+        frames (list): Specific time frames to plot.
         btype (int): Boundary condition type to use.
+        res (float): Grid resolution, corresponding to key in `res_dict`.
+        D (float): Diffusion coefficient for the simulation.
+        model (int): Numerical scheme identifier (1: Backwards Euler, 2: Forwards Euler, 
+                     3: Runge-Kutta 2, 4: Crank-Nicholson).
+        concentration_at_reading (bool, optional): Whether to plot concentration over Reading. 
+                                                   Defaults to False.
 
     Returns:
         None: Generates and saves a GIF of the simulation results.
     """
     windspeed = 10
-    D = 10000
     m = 1
     f = 1
     a = 1
     frame_rate = 100
-    res = 5
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
                 5: '5',
                 10: '10',
                 20: '20',
                 40: '40'}
-    model = 1
     model_name = {1: 'Backwards Euler',
                   2: 'Forwards Euler',
                   3: 'Runge-Kutta 2',
@@ -1036,7 +1040,6 @@ def make_gif_from_scratch(btype):
 
     dt = 10
     T = 43200  # 12hours
-    T = 10000
     # # Attempt to non-dimensionalise
     # # S_0 = 1
     # # L = res*1000
@@ -1052,47 +1055,48 @@ def make_gif_from_scratch(btype):
     # # Psi_frames = models[model_name[model]](
     # #     M_nd, K_nd, A_nd, F_nd, ID2, nodes, boundary_conditions, dt, T)
 
-    L = res*1000
+    # L = res*1000
 
-    # # M, K, A, F = scaling_matrices(M, K, A, F, L, windspeed)
+    # # # M, K, A, F = scaling_matrices(M, K, A, F, L, windspeed)
 
-    print('L =', L, 'u =', windspeed)
-    print('|D * K| =', np.round(np.absolute(D *
-          K[K != 0]).mean(), decimals=5), 'D * K ~ L^2', L**2)
-    print('|A| =', np.round(np.absolute(
-        A[A != 0]).mean(), 5), 'A ~ u * L', windspeed*L)
-    print('m * M =', np.round(np.absolute(m *
-          M[M != 0]).mean(), 5), 'M ~ L^2', L**2)
-    print('f * F =', np.round(np.absolute(f *
-          F[F != 0]).mean(), 5), 'F ~ L^2', L**2)
-    print('D * K =', np.round(D * K[K != 0].mean(),
-          decimals=5), 'D * K ~ L^2', L**2)
-    print('A =', np.round(A[A != 0].mean(), 5), 'A ~ u * L', windspeed*L)
-    print('Mean Eigenvalues D', np.mean(sp.linalg.eigs(
-        sp.csr_matrix(D*K), return_eigenvectors=False)))
-    print('Mean Eigenvalues A', np.mean(sp.linalg.eigs(
-        sp.csr_matrix(A), return_eigenvectors=False)))
-    print('Max Eigenvalues D', np.max(sp.linalg.eigs(
-        sp.csr_matrix(D*K), return_eigenvectors=False)))
-    print('Max Eigenvalues A', np.max(sp.linalg.eigs(
-        sp.csr_matrix(A), return_eigenvectors=False)))
+    # print('L =', L, 'u =', windspeed)
+    # print('|D * K| =', np.round(np.absolute(D *
+    #       K[K != 0]).mean(), decimals=5), 'D * K ~ L^2', L**2)
+    # print('|A| =', np.round(np.absolute(
+    #     A[A != 0]).mean(), 5), 'A ~ u * L', windspeed*L)
+    # print('m * M =', np.round(np.absolute(m *
+    #       M[M != 0]).mean(), 5), 'M ~ L^2', L**2)
+    # print('f * F =', np.round(np.absolute(f *
+    #       F[F != 0]).mean(), 5), 'F ~ L^2', L**2)
+    # print('D * K =', np.round(D * K[K != 0].mean(),
+    #       decimals=5), 'D * K ~ L^2', L**2)
+    # print('A =', np.round(A[A != 0].mean(), 5), 'A ~ u * L', windspeed*L)
+    # print('Mean Eigenvalues D', np.mean(sp.linalg.eigs(
+    #     sp.csr_matrix(D*K), return_eigenvectors=False)))
+    # print('Mean Eigenvalues A', np.mean(sp.linalg.eigs(
+    #     sp.csr_matrix(A), return_eigenvectors=False)))
+    # print('Max Eigenvalues D', np.max(sp.linalg.eigs(
+    #     sp.csr_matrix(D*K), return_eigenvectors=False)))
+    # print('Max Eigenvalues A', np.max(sp.linalg.eigs(
+    #     sp.csr_matrix(A), return_eigenvectors=False)))
 
-    node_distances = distance.cdist(nodes, nodes, 'euclidean')
-    min_node_distance = np.min(node_distances[node_distances != 0])
-    print('Min node distance', min_node_distance)
+    # node_distances = distance.cdist(nodes, nodes, 'euclidean')
+    # min_node_distance = np.min(node_distances[node_distances != 0])
+    # print('Min node distance', min_node_distance)
 
     Psi_frames = models[model_name[model]](
         m * M, D*K, a * A, f * F, ID2, nodes, boundary_conditions, dt, T)
 
     Psi_frames, psi_min, psi_max = normalize_psi(Psi_frames)
-    tri = find_Reading(nodes, IEN)
-    psi_values = Psi_frames[:, tri]
     file_name = f"{model_name[model]}_dt{dt}_T{T}_" \
         + f"D{D}_m{m}_a{a}_f{f}_res{res}_fr{frame_rate}_v{windspeed}"
 
-    # Psi_at_reading_plot(psi_values, nodes[tri], dt, T, file_name)
+    if concentration_at_reading == True:
+        tri = find_Reading(nodes, IEN)
+        psi_values = Psi_frames[:, tri]
+        Psi_at_reading_plot(psi_values, nodes[tri], dt, T, file_name)
 
-    file_name = "Test5"
+    file_name = "Backwards_Euler"
     create_gif(Psi_frames, nodes, IEN,
                file_name, dt, frame_rate, boundary_conditions)
     print('Done')
@@ -1205,32 +1209,34 @@ def make_gif_from_file():
     print('Finished')
 
 
-def plot_specific_frames_from_scratch(frames, btype, concentration_at_reading=False):
+def plot_specific_frames_from_scratch(frames, btype, res, D, model, concentration_at_reading=False):
     """
     Plot specific frames from a simulation and optionally plot the concentration over Reading.
 
     Args:
         frames (list): Specific time frames to plot.
         btype (int): Boundary condition type to use.
-        concentration_at_reading (bool, optional): Whether to plot concentration over Reading.
+        res (float): Grid resolution, corresponding to key in `res_dict`.
+        D (float): Diffusion coefficient for the simulation.
+        model (int): Numerical scheme identifier (1: Backwards Euler, 2: Forwards Euler, 
+                     3: Runge-Kutta 2, 4: Crank-Nicholson).
+        concentration_at_reading (bool, optional): Whether to plot concentration over Reading. 
+                                                   Defaults to False.
 
     Returns:
-        None: Saves the plots as PDF files.
+        None: Saves the plots as PDF files for the specified frames.
     """
     windspeed = 10
     # D = backwards 10000, rest 0
-    D = 1000
     m = 1
     f = 1
     a = 1
-    res = 5
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
                 5: '5',
                 10: '10',
                 20: '20',
                 40: '40'}
-    model = 3
     model_name = {1: 'Backwards Euler',
                   2: 'Forwards Euler',
                   3: 'Runge-Kutta 2',
@@ -1245,7 +1251,7 @@ def plot_specific_frames_from_scratch(frames, btype, concentration_at_reading=Fa
     M, K, A, F = compute_matrices(
         nodes, IEN, ID2, boundary_conditions, wind_velocity(windspeed, model_name[model]))
 
-    dt = 0.1
+    dt = 10
     T = max(frames)+1
 
     Psi_frames = models[model_name[model]](
@@ -1265,7 +1271,7 @@ def plot_specific_frames_from_scratch(frames, btype, concentration_at_reading=Fa
                 boundary_nodes, Psi_frames[adjusted_frames], frames, file_name)
 
 
-def numbers_from_system(btype):
+def numbers_from_system(btype, res):
     """
     Create and save a simulation GIF by running the solver from scratch.
 
@@ -1281,7 +1287,6 @@ def numbers_from_system(btype):
     f = 1
     a = 1
     frame_rate = 100
-    res = 2.5
     res_dict = {1.25: '1_25',
                 2.5: '2_5',
                 5: '5',
@@ -1330,16 +1335,3 @@ def numbers_from_system(btype):
     node_distances = distance.cdist(nodes, nodes, 'euclidean')
     min_node_distance = np.min(node_distances[node_distances != 0])
     print('Min node distance', min_node_distance)
-
-
-start = time.time()
-
-# frames = [100]
-# plot_specific_frames_from_scratch(
-#     frames, btype=1)
-make_gif_from_scratch(btype=1)
-# convergence_test()
-# numbers_from_system(btype=1)
-
-end = time.time()
-print(f'Completion time {end-start}')
